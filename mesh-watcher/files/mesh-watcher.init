@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=95
+STOP=01
+
+start_service() {
+    procd_open_instance
+
+    config_load mesh-watcher
+    local check_time
+    local check_babeld
+
+    config_get check_time check_time
+    config_get check_babeld babeld
+
+    procd_set_param command babeld-watcher "$check_time" "$check_babeld"
+    procd_close_instance
+}
