@@ -1,0 +1,94 @@
+From 33c110860d576eb6499ca2e8c56a7cce0b44b6bd Mon Sep 17 00:00:00 2001
+From: Nick Hainke <vincent@systemli.org>
+Date: Sat, 15 Jan 2022 20:15:02 +0100
+Subject: [PATCH] add debug
+
+---
+ src/unix/ifnet.c | 22 +++++++++++-----------
+ 1 file changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/src/unix/ifnet.c b/src/unix/ifnet.c
+index c286289b..a5c55c9d 100644
+--- a/src/unix/ifnet.c
++++ b/src/unix/ifnet.c
+@@ -535,30 +535,30 @@ chk_if_up(struct olsr_if *iface, int debuglvl __attribute__ ((unused)))
+   memset(&ifs, 0, sizeof(struct interface_olsr));
+   strscpy(ifr.ifr_name, iface->name, sizeof(ifr.ifr_name));
+ 
+-  OLSR_PRINTF(debuglvl, "Checking %s:\n", ifr.ifr_name);
++  olsr_syslog(OLSR_LOG_INFO, "Checking %s:\n", ifr.ifr_name);
+ 
+   /* Get flags (and check if interface exists) */
+   if (ioctl(olsr_cnf->ioctl_s, SIOCGIFFLAGS, &ifr) < 0) {
+-    OLSR_PRINTF(debuglvl, "\tNo such interface!\n");
++    olsr_syslog(OLSR_LOG_INFO, "\tNo such interface!\n");
+     return 0;
+   }
+ 
+   ifs.int_flags = ifr.ifr_flags;
+ 
+   if ((getInterfaceLinkState(iface->name) == LINKSTATE_DOWN) || ((ifs.int_flags & IFF_UP) == 0)) {
+-    OLSR_PRINTF(debuglvl, "\tInterface not up & running - skipping it...\n");
++    olsr_syslog(OLSR_LOG_INFO, "\tInterface not up & running - skipping it...\n");
+     return 0;
+   }
+ 
+   /* Check broadcast */
+   if ((olsr_cnf->ip_version == AF_INET) && !iface->cnf->ipv4_multicast.v4.s_addr &&     /* Skip if fixed bcast */
+       (!(ifs.int_flags & IFF_BROADCAST))) {
+-    OLSR_PRINTF(debuglvl, "\tNo broadcast - skipping\n");
++    olsr_syslog(OLSR_LOG_INFO, "\tNo broadcast - skipping\n");
+     return 0;
+   }
+ 
+   if (ifs.int_flags & IFF_LOOPBACK) {
+-    OLSR_PRINTF(debuglvl, "\tThis is a loopback interface - skipping it...\n");
++    olsr_syslog(OLSR_LOG_INFO, "\tThis is a loopback interface - skipping it...\n");
+     return 0;
+   }
+ 
+@@ -568,9 +568,9 @@ chk_if_up(struct olsr_if *iface, int debuglvl __attribute__ ((unused)))
+   ifs.is_wireless = check_wireless_interface(ifr.ifr_name);
+ 
+   if (ifs.is_wireless)
+-    OLSR_PRINTF(debuglvl, "\tWireless interface detected\n");
++    olsr_syslog(OLSR_LOG_INFO, "\tWireless interface detected\n");
+   else
+-    OLSR_PRINTF(debuglvl, "\tNot a wireless interface\n");
++    olsr_syslog(OLSR_LOG_INFO, "\tNot a wireless interface\n");
+ 
+   /* IP version 6 */
+   if (olsr_cnf->ip_version == AF_INET6) {
+@@ -581,7 +581,7 @@ chk_if_up(struct olsr_if *iface, int debuglvl __attribute__ ((unused)))
+       OLSR_PRINTF(3, "\tCould not find ip address for %s with prefix %s.\n", ifr.ifr_name, olsr_ip_prefix_to_string(&iface->cnf->ipv6_src));
+       return 0;
+     }
+-    OLSR_PRINTF(debuglvl, "\tAddress: %s\n", ip6_to_string(&buf, &iface->cnf->ipv6_multicast.v6));
++    olsr_syslog(OLSR_LOG_INFO, "\tAddress: %s\n", ip6_to_string(&buf, &iface->cnf->ipv6_multicast.v6));
+ 
+     /* Multicast */
+     memset(&ifs.int6_multaddr, 0, sizeof(ifs.int6_multaddr));
+@@ -599,9 +599,9 @@ chk_if_up(struct olsr_if *iface, int debuglvl __attribute__ ((unused)))
+     ifs.int6_multaddr.sin6_scope_id = 0;
+ #endif /* __APPLE__ */
+ 
+-    OLSR_PRINTF(debuglvl, "\tMulticast: %s\n", ip6_to_string(&buf, &ifs.int6_multaddr.sin6_addr));
++    olsr_syslog(OLSR_LOG_INFO, "\tMulticast: %s\n", ip6_to_string(&buf, &ifs.int6_multaddr.sin6_addr));
+ 
+-  }
++    }
+   /* IP version 4 */
+   else {
+     /* Get interface address (IPv4) */
+@@ -612,7 +612,7 @@ chk_if_up(struct olsr_if *iface, int debuglvl __attribute__ ((unused)))
+       struct sockaddr* ifra;
+ 
+       if (ioctl(olsr_cnf->ioctl_s, SIOCGIFADDR, &ifr) < 0) {
+-        OLSR_PRINTF(debuglvl, "\tCould not get address of interface - skipping it\n");
++        olsr_syslog(OLSR_LOG_INFO, "\tCould not get address of interface - skipping it\n");
+         return 0;
+       }
+       ifra = &ifr.ifr_addr;
+-- 
+2.34.1
+

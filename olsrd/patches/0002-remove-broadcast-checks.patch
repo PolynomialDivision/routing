@@ -1,0 +1,34 @@
+From ae30d0bf1ab2b57c07330def7ed3e034d9bf3805 Mon Sep 17 00:00:00 2001
+From: Nick Hainke <vincent@systemli.org>
+Date: Sat, 15 Jan 2022 20:26:34 +0100
+Subject: [PATCH] remove broadcast checks
+
+---
+ src/unix/ifnet.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/unix/ifnet.c b/src/unix/ifnet.c
+index a5c55c9d..2bfc5656 100644
+--- a/src/unix/ifnet.c
++++ b/src/unix/ifnet.c
+@@ -186,7 +186,7 @@ chk_if_changed(struct olsr_if *iface)
+   if ((olsr_cnf->ip_version == AF_INET) && !iface->cnf->ipv4_multicast.v4.s_addr &&     /* Skip if fixed bcast */
+       (!(ifp->int_flags & IFF_BROADCAST))) {
+     OLSR_PRINTF(3, "\tNo broadcast - removing\n");
+-    goto remove_interface;
++    //goto remove_interface;
+   }
+ 
+   if (ifp->int_flags & IFF_LOOPBACK) {
+@@ -554,7 +554,7 @@ chk_if_up(struct olsr_if *iface, int debuglvl __attribute__ ((unused)))
+   if ((olsr_cnf->ip_version == AF_INET) && !iface->cnf->ipv4_multicast.v4.s_addr &&     /* Skip if fixed bcast */
+       (!(ifs.int_flags & IFF_BROADCAST))) {
+     olsr_syslog(OLSR_LOG_INFO, "\tNo broadcast - skipping\n");
+-    return 0;
++    //return 0;
+   }
+ 
+   if (ifs.int_flags & IFF_LOOPBACK) {
+-- 
+2.34.1
+

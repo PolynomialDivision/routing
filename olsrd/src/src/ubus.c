@@ -1,0 +1,200 @@
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/select.h>
+
+#include <libubox/blob.h>
+#include <libubox/blobmsg.h>
+#include <libubus.h>
+
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+
+#include "ifnet.h"
+#include "interfaces.h"
+#include "log.h"
+#include "olsr.h"
+#include "olsr_cfg.h"
+
+//#include "ipcalc.h"
+
+#include "ubus.h"
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+// Definition of header variable whether to enable ubus bindings.
+int ubus_bindings = 1;
+
+// Shared state maintained throughout calls to handle ubus messages.
+static struct ubus_context *shared_ctx;
+
+enum { INTERFACE_IFNAME, __INTERFACE_MAX };
+
+static const struct blobmsg_policy interface_policy[__INTERFACE_MAX] = {
+    [INTERFACE_IFNAME] = {"ifname", BLOBMSG_TYPE_STRING},
+};
+
+static int olsrd_ubus_add_interface(struct ubus_context *ctx_local,
+                                    struct ubus_object *obj,
+                                    struct ubus_request_data *req,
+                                    const char *method, struct blob_attr *msg) {
+  struct blob_attr *tb[__INTERFACE_MAX];
+  struct blob_buf b = {0};
+  int ret;
+  char *ifname;
+  void *foo;
+
+  blobmsg_parse(interface_policy, __INTERFACE_MAX, tb, blob_data(msg),
+                blob_len(msg));
+
+  if (!tb[INTERFACE_IFNAME])
+    return UBUS_STATUS_INVALID_ARGUMENT;
+
+  ifname = blobmsg_get_string(tb[INTERFACE_IFNAME]);
+
+  struct olsr_if *tmp_ifs = olsr_create_olsrif(ifname, false);
+  struct if_config_options *default_ifcnf = get_default_if_config();
+  tmp_ifs->cnf = default_ifcnf;
+
+  blob_buf_init(&b, 0);
+  blobmsg_add_string(&b, "adding", ifname);
+
+  ret = ubus_send_reply(ctx_local, req, b.head);
+  if (ret)
+    olsr_syslog(OLSR_LOG_INFO, "Failed to send reply: %s\n",
+                ubus_strerror(ret));
+
+  blob_buf_free(&b);
+
+  return ret;
+}
+
+static int olsrd_ubus_del_interface(struct ubus_context *ctx_local,
+                                    struct ubus_object *obj,
+                                    struct ubus_request_data *req,
+                                    const char *method, struct blob_attr *msg) {
+  struct blob_attr *tb[__INTERFACE_MAX];
+  struct blob_buf b = {0};
+  int ret;
+  char *ifname;
+  void *foo;
+
+  olsr_syslog(OLSR_LOG_INFO, "ubus: Adding Interface\n");
+
+  blobmsg_parse(interface_policy, __INTERFACE_MAX, tb, blob_data(msg),
+                blob_len(msg));
+
+  if (!tb[INTERFACE_IFNAME])
+    return UBUS_STATUS_INVALID_ARGUMENT;
+
+  ifname = blobmsg_get_string(tb[INTERFACE_IFNAME]);
+
+  olsr_syslog(OLSR_LOG_INFO, "ubus: Deleting Interface: %s\n", ifname);
+
+  blob_buf_init(&b, 0);
+  blobmsg_add_string(&b, "deleting", ifname);
+
+  struct interface_olsr *tmp = if_ifwithname(ifname);
+  if (tmp != NULL) {
+    olsr_syslog(OLSR_LOG_INFO, "ubus: REMOVING INTERFACE!!!: %s\n", ifname);
+    olsr_remove_interface(tmp->olsr_if);
+  }
+
+  //char buffer[INET_ADDRSTRLEN];
+  //inet_ntop(AF_INET, &tmp->ip_addr.v4.s_addr, buffer, sizeof(buffer));
+  //olsr_syslog(OLSR_LOG_INFO, "ubus: REMOVING IP: %s\n", buffer);
+
+  // check_interface_updates(foo);
+  // olsr_delete_interfaces();
+  // olsr_init_interfacedb();
+
+  ret = ubus_send_reply(ctx_local, req, b.head);
+  if (ret)
+    olsr_syslog(OLSR_LOG_INFO, "Failed to send reply: %s\n",
+                ubus_strerror(ret));
+
+  blob_buf_free(&b);
+
+  return ret;
+}
+
+// List of functions we expose via the ubus bus.
+static const struct ubus_method olsrd_methods[] = {
+    UBUS_METHOD("add_interface", olsrd_ubus_add_interface, interface_policy),
+    UBUS_METHOD("del_interface", olsrd_ubus_del_interface, interface_policy),
+};
+
+// Definition of the ubus object type.
+static struct ubus_object_type olsrd_object_type =
+    UBUS_OBJECT_TYPE("olsrd", olsrd_methods);
+
+// Object we announce via the ubus bus.
+static struct ubus_object olsrd_object = {
+    .name = "olsrd",
+    .type = &olsrd_object_type,
+    .methods = olsrd_methods,
+    .n_methods = ARRAY_SIZE(olsrd_methods),
+};
+
+// Registers handlers for olsrd methods in the global ubus context.
+static bool ubus_init_object() {
+  int ret;
+
+  ret = ubus_add_object(shared_ctx, &olsrd_object);
+  if (ret) {
+    olsr_syslog(OLSR_LOG_INFO, "Failed to add object: %s\n",
+                ubus_strerror(ret));
+    return false;
+  }
+
+  return true;
+}
+
+// Initializes the global ubus context, connecting to the bus to be able to
+// receive and send messages.
+static bool olsrd_ubus_init(void) {
+  if (shared_ctx)
+    return true;
+
+  olsr_syslog(OLSR_LOG_INFO, "Connect ubus\n");
+  shared_ctx = ubus_connect(NULL);
+  olsr_syslog(OLSR_LOG_INFO, "Connected ubus\n");
+  if (!shared_ctx)
+    return false;
+
+  return true;
+}
+
+void olsrd_ubus_receive(fd_set *readfds) {
+  if (!shared_ctx)
+    return;
+  if (FD_ISSET(shared_ctx->sock.fd, readfds))
+    ubus_handle_event(shared_ctx);
+}
+
+int olsrd_ubus_add_read_sock(fd_set *readfds, int maxfd) {
+  if (!shared_ctx)
+    return maxfd;
+
+  FD_SET(shared_ctx->sock.fd, readfds);
+  return MAX(maxfd, shared_ctx->sock.fd + 1);
+}
+
+bool olsrd_add_ubus() {
+  olsr_syslog(OLSR_LOG_INFO, "Adding ubus\n");
+  if (!olsrd_ubus_init()) {
+    olsr_syslog(OLSR_LOG_INFO, "Failed to initialize ubus!\n");
+    return false;
+  }
+  olsr_syslog(OLSR_LOG_INFO, "Initialized ubus\n");
+  if (!ubus_init_object()) {
+    olsr_syslog(OLSR_LOG_INFO, "Failed to add objects to ubus!\n");
+    return false;
+  }
+  olsr_syslog(OLSR_LOG_INFO, "Finished ubus\n");
+  return true;
+}
